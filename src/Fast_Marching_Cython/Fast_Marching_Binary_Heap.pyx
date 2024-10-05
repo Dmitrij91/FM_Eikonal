@@ -188,9 +188,8 @@ cdef double Local_Solution(double* a_i,double Vel, double p,double* w_i,int vert
             m += 1
     
     elif p == 2.0:
-        
         while Local_Solution >= a_i[m+1] and m <= End_Point-1:
-            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,w_i,vertex,End_Point)            
+            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,w_i,vertex,m+1)            
             m += 1
     free(a_i_sorted)
     free(w_i_sorted)
@@ -202,7 +201,7 @@ cdef double Local_Solution(double* a_i,double Vel, double p,double* w_i,int vert
 @cython.wraparound(False)
 @cython.cdivision(True)
 
-cdef double Solve_Subproblem(double* a_i,double* w_i_sorted,double Norm, double p,double* w_i,int local_vertex, int End_Point):
+cdef double Solve_Subproblem(double* a_i,double* w_i_sorted,double Norm,double p,double* w_i,int local_vertex, int End_Point):
     
     cdef double Sol = 0
     cdef double Term,Value_Inner_Loop 
@@ -210,33 +209,29 @@ cdef double Solve_Subproblem(double* a_i,double* w_i_sorted,double Norm, double 
     cdef int l,s,i,j,index,k,Iter_Patsch,Length_NPatch,h,y,f,w
         
     if p == 1.0:
-        
         for l in range(End_Point):    
             Sol += a_i[l]*sqrt(w_i[l])
             h_i_normalized += sqrt(w_i[l])
+        Sol += Norm
                 
     elif p == 2.0:
-        
-        for l in range(End_Point):  
+        for i in range(End_Point):
+            Sol = 0
+            Value_Inner_Loop = 0
 
-            for i in range(End_Point):
-                Value_Inner_Loop = 0
-                
-                for j in range(i+1,End_Point-1):
-                    Value_Inner_Loop += pow_double((a_i[i]-a_i[j]),2.0)/(pow_double(1/sqrt(w_i[i]),2.0)\
-                                                                         *pow_double(w_i[j],2.0))    
-               
-                Term = Term + pow_double(Norm,2.0)/pow_double(1/sqrt(w_i[i]),2.0)-Value_Inner_Loop
-                
-            Sol = Sol+ a_i[l]/pow_double(1/w_i[l],2.0)+sqrt(Term)
-            
+            for j in range(i+1,End_Point):
+                Value_Inner_Loop += pow_double((a_i[i]-a_i[j]),2.0)/(1/(w_i[i]*w_i[j]))
+
+            Term += pow_double(Norm,2.0)/(1/w_i[i])-Value_Inner_Loop
+
+            Sol += a_i[i]*w_i[i]
+        Sol += sqrt(Term)
         for s in range(End_Point):
-            h_i_normalized += 1.0/pow_double(w_i[s],2.0)
+            h_i_normalized += w_i[s]
             
-    return (Sol+Norm)/h_i_normalized 
+    return Sol/h_i_normalized 
 
-########################################
-# Todo Improve Center_Pixel
+
 """
 
 Norm Subroutine with Ansitropic weights 
@@ -281,7 +276,7 @@ cdef inline (int*,double*) Update_Narrow_Band( int* indptr, int* indices, \
                     double* Narrow_Band_Val, int* Narrow_Band,int* Indices,\
                     double* Image_Data_Graph, double* h_i,int Length_In,int* Length_Narrow,\
                     int Min_Index, int* levels,int* count,bint* Indices_Far_Away_bool,\
-                    bint* Indices_Narrow_bool,double* Vel):
+                    bint* Indices_Narrow_bool,double* Vel,double p):
     
     'Create Variables auscilary Variables'
     
@@ -325,7 +320,7 @@ cdef inline (int*,double*) Update_Narrow_Band( int* indptr, int* indices, \
             Image_Data_Graph_pt[k] = Image_Data_Graph[indices[indptr[indices[indptr[Min_Index]+j]]+k]]
             h_i_pt[k] = h_i[indptr[indices[indptr[Min_Index]+j]]+k]
 
-        Help = Local_Solution(&Image_Data_Graph_pt[0],Vel[indices[indptr[Min_Index]+j]],1.0,h_i_pt, j,Length_neigh_j)
+        Help = Local_Solution(&Image_Data_Graph_pt[0],Vel[indices[indptr[Min_Index]+j]],p,h_i_pt, j,Length_neigh_j)
         
         if Help < Image_Data_Graph[indices[indptr[Min_Index]+j]]:
             Image_Data_Graph[indices[indptr[Min_Index]+j]] = Help
@@ -672,7 +667,7 @@ cdef (double*,int*) add_level(int* old_reference, double* old_values,int* number
 @cython.wraparound(False)
 @cython.cdivision(True)
 
-cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] data,int [:] indices,int [:] indptr,int[:,:] Seeds_indices, int [:] shape_ad):
+cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] data,int [:] indices,int [:] indptr,int[:,:] Seeds_indices, int [:] shape_ad,double p):
     
     assert len(data.shape) == len(indices.shape), ' data and indices not of equal shape '
     
@@ -887,7 +882,7 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
      
         references_array,nodes_values = Update_Narrow_Band(&indptr[0],&indices[0],nodes_values_pt,\
                     references_array_pt,Indices_neig,&Image_Data_Graph[0],data_pt,Neigh_ind,&nodes_number,\
-                    Min_Index_Narrow,&levels,&count,&Indices_Far_Away_bool[0],&Indices_Narrow_bool[0],&Velocity[0])
+                    Min_Index_Narrow,&levels,&count,&Indices_Far_Away_bool[0],&Indices_Narrow_bool[0],&Velocity[0],p)
         free(Indices_neig)
        
     #' Append_Remaining Indices '
