@@ -162,8 +162,7 @@ cdef Append_Val(cnp.ndarray[double,ndim = 1] Array_Val, double Val):
 @cython.wraparound(False)
 @cython.cdivision(True)
 
-
-cdef double Local_Solution(double* a_i,double Vel, double p,double* w_i,int vertex, int End_Point):
+cdef double Local_Solution(double* a_i,double Vel,double p,double* w_i,int vertex, int End_Point):
     
     ' Compute the gradient on the grid (Characterization of P(x,y)) '
     
@@ -181,18 +180,27 @@ cdef double Local_Solution(double* a_i,double Vel, double p,double* w_i,int vert
     cdef int m = 0
 
     a_i_sorted,w_i_sorted = Sort(a_i,w_i,End_Point)
+    for k in range(End_Point):
+        print("Sorted",a_i_sorted[k])
     
     if p == 1.0:
-        while Local_Solution > a_i_sorted[m+1] and m <= End_Point-2:
-            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,w_i,vertex,m+1)  
+        while Local_Solution >= a_i_sorted[m+1] and m <= End_Point-1:
+            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,vertex,m+1)  
+            print("Local_Solution",Local_Solution)
             m += 1
     
     elif p == 2.0:
-        while Local_Solution >= a_i[m+1] and m <= End_Point-1:
-            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,w_i,vertex,m+1)            
+        while Local_Solution >=a_i_sorted[m+1] and m <= End_Point-1:
+            Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,vertex,m+1)
             m += 1
+    elif p == 3.0:# infinity
+        Local_Solution = a_i_sorted[0]+w_i_sorted[0]
+            #print("Local_Solution",Local_Solution)
+    
+    #Local_Solution = f_min_double(Local_Solution,a_i[0])
     free(a_i_sorted)
-    free(w_i_sorted)
+    free(w_i_sorted) 
+    
     return Local_Solution
 
 ' Subroutine for minimal time arrival value '
@@ -201,36 +209,35 @@ cdef double Local_Solution(double* a_i,double Vel, double p,double* w_i,int vert
 @cython.wraparound(False)
 @cython.cdivision(True)
 
-cdef double Solve_Subproblem(double* a_i,double* w_i_sorted,double Norm,double p,double* w_i,int local_vertex, int End_Point):
+cdef double Solve_Subproblem(double* a_i,double* w_i_sorted,double Norm,double p,int local_vertex, int End_Point):
     
     cdef double Sol = 0
-    cdef double Term,Value_Inner_Loop 
+    cdef double Term = 0
+    cdef double Value_Inner_Loop 
     cdef double h_i_normalized = 0
     cdef int l,s,i,j,index,k,Iter_Patsch,Length_NPatch,h,y,f,w
         
     if p == 1.0:
         for l in range(End_Point):    
-            Sol += a_i[l]*sqrt(w_i[l])
-            h_i_normalized += sqrt(w_i[l])
+            Sol += a_i[l]*sqrt(w_i_sorted[l])
+            h_i_normalized += sqrt(w_i_sorted[l])
         Sol += Norm
                 
     elif p == 2.0:
         for i in range(End_Point):
-            Sol = 0
             Value_Inner_Loop = 0
 
             for j in range(i+1,End_Point):
-                Value_Inner_Loop += pow_double((a_i[i]-a_i[j]),2.0)/(1/(w_i[i]*w_i[j]))
+                Value_Inner_Loop += pow_double((a_i[i]-a_i[j]),2.0)*w_i_sorted[i]*w_i_sorted[j]
 
-            Term += pow_double(Norm,2.0)/(1/w_i[i])-Value_Inner_Loop
+            Term += pow_double(Norm,2.0)*w_i_sorted[i]-Value_Inner_Loop
 
-            Sol += a_i[i]*w_i[i]
+            Sol += a_i[i]*w_i_sorted[i]
         Sol += sqrt(Term)
         for s in range(End_Point):
-            h_i_normalized += w_i[s]
+            h_i_normalized += w_i_sorted[s]
             
     return Sol/h_i_normalized 
-
 
 """
 
@@ -240,8 +247,7 @@ Norm Subroutine with Ansitropic weights
                                 expressed by distance between nodes
 
 """
-
-@cython.boundscheck(False)
+"""@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
 
@@ -263,8 +269,8 @@ cdef double Compute_Grad_norm_minus(double* Neigh_Data,double p,double* h_i,\
     
         
     Norm_Final = pow_double(Norm_Final,1.0/p)
-    
-    return Norm_Final
+
+    return Norm_Final"""
 
 ' Subroutine for updating Narrow_Band '
 
@@ -321,37 +327,69 @@ cdef inline (int*,double*) Update_Narrow_Band( int* indptr, int* indices, \
             h_i_pt[k] = h_i[indptr[indices[indptr[Min_Index]+j]]+k]
 
         Help = Local_Solution(&Image_Data_Graph_pt[0],Vel[indices[indptr[Min_Index]+j]],p,h_i_pt, j,Length_neigh_j)
+        #print("Help",Help)
         
         if Help < Image_Data_Graph[indices[indptr[Min_Index]+j]]:
             Image_Data_Graph[indices[indptr[Min_Index]+j]] = Help
             if Response_1 == 1:
-                Indices_Far_Away_bool[Indices[j]] = False #Set Index in Far_Away to -1 to ignore it
-                Neigh_value  = Image_Data_Graph[indices[indptr[Min_Index]+j]] #Find Index in Far_Away with value Indices[j]
+                print("Response_1")
+                'Set Index in Far_Away to -1 to ignore it '
+                
+                Indices_Far_Away_bool[Indices[j]] = False
+
+                ' Find Index in Far_Away with value Indices[j] '
+                    
+                Neigh_value  = Image_Data_Graph[indices[indptr[Min_Index]+j]]
 
                 ' If indices positions exceed add new level '
 
                 if count_pt+1 > number-pow(2,levels_pt-1):
-                    number += pow(2,levels_pt) # Update Narrowband size
-                    Narrow_Band_Val_Up,Narrow_Band_Up = add_level(Narrow_Band_pt, Narrow_Band_Val_pt,Length_Narrow,&levels_pt,add = 1) #Add Level to Binary Heap 
+
+                    ' Update Narrowband size '
+                    
+                    number += pow(2,levels_pt)
+
+                    ' Add Level to Binary Heap '
+
+                    Narrow_Band_Val_Up,Narrow_Band_Up = add_level(Narrow_Band_pt, Narrow_Band_Val_pt,Length_Narrow,\
+                                                                &levels_pt,add = 1)
+                    
+
+                    print("levels_pt_before",levels_pt)
+                    print("count_pt_before",count_pt)
                     levels_pt += 1
-                    Min_Heap_Insert(Narrow_Band_Up, Narrow_Band_Val_Up, indices[indptr[Min_Index]+j],Neigh_value,count_pt)
+                    Min_Heap_Insert(Narrow_Band_Up, Narrow_Band_Val_Up, indices[indptr[Min_Index]+j],Neigh_value,\
+                                                                                                        count_pt)
                     count_pt += 1 
+                    print("levels_pt_after",levels_pt)
+                    print("count_pt_after",count_pt)
+                    print("Number",number)
                     Narrow_Band_pt = &Narrow_Band_Up[0]
                     Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
                 else: 
+                    print("Second_Else")
                     Narrow_Band_Val_Up = Narrow_Band_Val_pt
                     Narrow_Band_Up     = Narrow_Band_pt
+                    print("count_pt_before",count_pt)
                     Min_Heap_Insert(Narrow_Band_Up, Narrow_Band_Val_Up, indices[indptr[Min_Index]+j],Neigh_value, count_pt)
                     count_pt += 1
+                    print("count_pt_after",count_pt)
+                    print("Number",number)
                     Narrow_Band_pt = &Narrow_Band_Up[0]
                     Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
             elif Response == 1:
+                print("Response")
+                print("Number",number)
                 Narrow_Band_Val_Up = Narrow_Band_Val_pt
                 Narrow_Band_Up     = Narrow_Band_pt
                 Min_Heap_Update_Node_Pos(Narrow_Band_Up, Narrow_Band_Val_Up,indices[indptr[Min_Index]+j],\
                        Neigh_value,count_pt,number)
                 Narrow_Band_pt = &Narrow_Band_Up[0]
-                Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]          
+                Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
+                print("Number",number)
+
+            
+          
         free(Image_Data_Graph_pt)
         free(h_i_pt)
         
@@ -361,7 +399,7 @@ cdef inline (int*,double*) Update_Narrow_Band( int* indptr, int* indices, \
     
     return Narrow_Band_pt,Narrow_Band_Val_pt
 
-"""
+""""
 
 Returns indices_1\indices indices_1 of type arange(Length_graph)
 
@@ -409,6 +447,7 @@ cdef void Min_Heap_Update_Node_Pos(int* narr_band_ref, double* narr_band_val,int
         left  = Index_node*2+1
         right = Index_node*2+2
         if narr_band_val[parent] > narr_band_val[Index_node]:
+            #print("EnterFirst")
             ' Move Up '
             Aux_ind = narr_band_ref[parent]
             Aux_val = narr_band_val[parent]
@@ -418,6 +457,10 @@ cdef void Min_Heap_Update_Node_Pos(int* narr_band_ref, double* narr_band_val,int
             narr_band_ref[Index_node] = Aux_ind
             Index_node = parent
         elif (left < Heap_Size and right < Heap_Size ):
+            #print("Index_Node",narr_band_val[Index_node])
+            #print("Right",narr_band_val[right])
+            #print("Left",narr_band_val[left])
+            #print("EnterSecond")
             ' Move Up '
             if narr_band_val[Index_node] > narr_band_val[left] or narr_band_val[Index_node] > narr_band_val[right]:
                 ' Determine which child to be moved to the top '
@@ -461,7 +504,7 @@ cdef void Intersect_Cython(bint* Far_Away_ind,int Check_index,int* Response)nogi
 @cython.cdivision(True)
 
 cdef inline (int*,double*) Rem_Min_Index_Binary_Heap(int* narr_band_ref, double* narr_band_val,int* levels,\
-                                                     int* count,int* size_narrow,int min_levels):
+                                                     int* count,int* size_narrow):
             
     cdef int End_Ind = count[0] - 1
     cdef double Aux_val
@@ -489,6 +532,7 @@ cdef inline (int*,double*) Rem_Min_Index_Binary_Heap(int* narr_band_ref, double*
     parent_aux = parent
     left = parent*2+1
     right =  parent*2+2
+    #print("CheckRem_Min_Index_")
     while  narr_band_val[parent] > narr_band_val[left] or narr_band_val[parent] > narr_band_val[right]:
         if narr_band_val[parent_aux] > narr_band_val[left]:
             parent_aux = left
@@ -508,14 +552,16 @@ cdef inline (int*,double*) Rem_Min_Index_Binary_Heap(int* narr_band_ref, double*
             break 
     
     ' If empty Level remove level from Min-Heap '
-    
-    if (levels[0] > min_levels) and (count[0] < size_narrow[0]-pow(2,levels[0])):
+    print("size_narrow_before_if",size_narrow[0])
+    print("Levels_Add_Func",levels[0])
+    if  (count[0] < size_narrow[0]-pow(2,levels[0]-1)):
         narr_band_ref_pt = &narr_band_ref[0]             
         narr_band_val_pt = &narr_band_val[0]
         levels_pt = levels[0]
+        print("size_narrow_before",size_narrow[0])
         narr_band_val_pt,narr_band_ref_pt = add_level(narr_band_ref_pt, narr_band_val_pt,size_narrow, &levels_pt,add = -1) 
         levels[0] = levels[0] - 1
-        
+        print("size_narrow_after",size_narrow[0])
     else:        
         levels_pt        = levels[0]
         narr_band_ref_pt = &narr_band_ref[0]             
@@ -532,15 +578,27 @@ cdef inline (int*,double*) Rem_Min_Index_Binary_Heap(int* narr_band_ref, double*
 @cython.cdivision(True)
 
 cdef inline (double,int*,double*) Get_Index_Narrow_Cython(int* levels, double* current_values,\
-                    int* current_reference,int min_levels,int* popped_ref,int* count,int* size_narrow):
+                    int* current_reference,int* popped_ref,int* count,int* size_narrow):
     
     
     cdef double value
     cdef int* current_reference_pt
     cdef double* current_values_pt
+        
+    ' Pick the index with the lowest value located at the top of the binary heap'
+    #print("current_values[i]")
+    #print(current_values[0])
+    
+                                                
+    ' Return current reference index and value '  
     value = current_values[0]
     popped_ref[0] = current_reference[0]
-
+    #print("current_reference[local_index]")
+    #print(current_reference[0])
+    #print("Min Values:__")
+    #print(value)
+    
+    
     ' Remove index '
         
     current_reference_pt = &current_reference[0]   
@@ -550,7 +608,7 @@ cdef inline (double,int*,double*) Get_Index_Narrow_Cython(int* levels, double* c
     cdef int levels_pt      = levels[0]
     cdef int size_narrow_pt = size_narrow[0]
     current_reference_pt,current_values_pt = Rem_Min_Index_Binary_Heap(current_reference_pt,current_values_pt\
-                                                        ,&levels_pt,&count_pt,&size_narrow_pt,min_levels)
+                                                        ,&levels_pt,&count_pt,&size_narrow_pt)
     
     count[0]       = count_pt
     levels[0]      = levels_pt
@@ -578,6 +636,9 @@ cdef void Min_Heap_Insert(int* array_indices,double* array_values,int index,doub
         array_values[Ind_Heap] = value
     else:
         parent_ind = int((Ind_Heap-1)/2)
+        #print("parent_ind",parent_ind)
+        #print(array_values[parent_ind])
+        #print(array_values[i])
 
         while array_values[parent_ind] > array_values[i]:
             Aux_val = array_values[parent_ind]
@@ -588,6 +649,7 @@ cdef void Min_Heap_Insert(int* array_indices,double* array_values,int index,doub
             array_indices[i] = Aux_ind
             i = parent_ind
             parent_ind = int((i-1)/2)
+            #print("parent_ind_while",parent_ind)
 
 
         
@@ -616,6 +678,7 @@ cdef (double*,int*) add_level(int* old_reference, double* old_values,int* number
     
     if add == 1:      
         number_nodes_new += pow(2,old_levels[0])
+        #print("Number_nodes_new",number_nodes_new)
     elif add == -1:
         number_nodes_new -= pow(2,old_levels[0]-1)
     
@@ -675,6 +738,7 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
     cdef int k,l,i
     
     cdef double [:] Image_Data_Graph = Image.copy() # Array of reshaped arrival times set to zero at seeds indices 
+    #print("Seeds_indices.shape[0]",Seeds_indices.shape[0])
     for k in range(Seeds_indices.shape[0]):
         Image_Data_Graph[Seeds_indices[k,0]] = 0
     
@@ -718,17 +782,26 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
     
     ' Initilize empty Narrow_Band through a Min-Heap-Structure with initial capacity 256 '
     
-    cdef int initial_capacity = 128
+    cdef int initial_capacity = 0
     cdef int levels = 0
     cdef int nodes_number = 0
-    cdef int count = 0 # Number of Stored Values 
-
-    ' Initialize Number Of Levels '    
-    while nodes_number < initial_capacity:
-        nodes_number += pow(2,levels)
+    while initial_capacity < Seeds_indices.shape[0]:
+        initial_capacity += pow(2,levels)
         levels += 1
-        
-    cdef int min_levels = levels 
+    print("Levels",levels)
+    print("Initial_Capacity",initial_capacity)
+    
+    ' Number of Stored Values '
+    
+    cdef int count = 0
+    
+    ' Initialize Number Of Levels '
+    cdef int lev = 0
+    while nodes_number <= initial_capacity:
+        nodes_number += pow(2,lev)
+        lev += 1
+    levels = lev
+    print("Nodes_Number",nodes_number)
 
     ' Allocate memory for two arrays for binary min heap ' 
         
@@ -775,8 +848,9 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
             
             for q in range(Neigh_ind_l): 
                 Image_Data_Graph_pt[q] = Image_Data_Graph[indices[indptr[indices[indptr[Active_List[k]]+l]]+q]]
+                print(Image_Data_Graph_pt[q])
                 h_i_pt[q] = data[indptr[indices[indptr[Active_List[k]]+l]]+q]
-
+                print(h_i_pt[q])
             if Check_Index == 1: # Add to Narrow_Band --> Remove from Far_Away
                 Indices_Far_Away_bool[indices[indptr[Active_List[k]]+l]] = False
                 
@@ -789,11 +863,18 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
                 ' If indices positions exceed --> add new level '
 
                 if count >= nodes_number:
+                    print("Enter new Size")
                     ' Update Size Binary Heap '
-                    new_values, new_reference = add_level(references_array_pt, nodes_values_pt,&nodes_number,&levels,add = 1)
+                    print("Levels",levels)
+                    print("Nodes_before",nodes_number)
+                    new_values, new_reference = add_level(references_array_pt, nodes_values_pt,&nodes_number,\
+                                                             &levels,add = 1)
                     levels += 1
+                    print("Levels_after",levels)
+                    print("Nodes_after",nodes_number)
 
                 else: 
+                    print("Enter old Size")
                     new_values    = <double*>malloc(nodes_number*sizeof(double))
                     new_reference = <int*>malloc(nodes_number*sizeof(int))
 
@@ -805,15 +886,17 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
                     for i in range(nodes_number):
                         new_values[i] = nodes_values[i]
 
-                    new_values_pt    = &new_values[0]
-                    new_reference_pt = &new_reference[0] 
                     free(nodes_values)
                     free(references_array)
-
-                Help = Local_Solution(&Image_Data_Graph_pt[0],Velocity[indices[indptr[Active_List[k]]+l]],1.0,&h_i_pt[0], l,Neigh_ind_l)
+                new_values_pt    = &new_values[0]
+                new_reference_pt = &new_reference[0] 
+                Help = Local_Solution(&Image_Data_Graph_pt[0],Velocity[indices[indptr[Active_List[k]]+l]],p,\
+                                      &h_i_pt[0], l,Neigh_ind_l)
                 Image_Data_Graph[indices[indptr[Active_List[k]]+l]] = Help
+                print("Help",Help)
                 Min_Heap_Insert(new_reference_pt,new_values_pt,indices[indptr[Active_List[k]]+l],Help,count)
                 count += 1
+                #print("count",count)
 
                 ' Update Binary Tree '
 
@@ -823,17 +906,21 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
                 ' Update via for old number_size '
 
                 for i in range(nodes_number):
+
                     nodes_values[i] = new_values[i]
 
                 for i in range(nodes_number):
+
                     references_array[i] = new_reference[i]
 
                 nodes_values_pt     = &nodes_values[0]
+
                 references_array_pt = &references_array[0]
                 free(new_reference)
                 free(new_values)
             free(Image_Data_Graph_pt)
             free(h_i_pt)
+    #print("Initial_Capacity",nodes_number)
                 
     ' Process Time Distance '
     ' Get the minimal value in Narrow Band '
@@ -849,7 +936,9 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
     cdef double Print_Time
     Print_Time = time.time()
 
-    while Step < Length_Graph:
+    while Step < Length_Graph-1:
+        print("Step",Step)
+
         'Append the first value [0] of Narrow Band to \
          Active_list, delete [0] from Narrow_Band --> Initilize array for new values'
         
@@ -859,11 +948,17 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
         
         
         Min_Value_Narrow,references_array,nodes_values = Get_Index_Narrow_Cython(&levels,nodes_values_pt\
-                                             ,references_array_pt,min_levels,\
-                                               &Min_Index_Narrow,&count,&nodes_number)
+                                             ,references_array_pt, &Min_Index_Narrow,&count,&nodes_number)
+        #print("Index")
+        #print(Min_Index_Narrow)
+
+        #print(Image_Data_Graph[Min_Index_Narrow])
         Active_List[Step]   = Min_Index_Narrow
+        
         Indices_Narrow_bool[Min_Index_Narrow] = False
+        
         Active_List_Val[Step] = Min_Value_Narrow
+        
         Step = Step + 1
         
         ' Allocate Memory for neighbour indices to be updated '
@@ -879,7 +974,7 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
         
         nodes_values_pt     = &nodes_values[0]
         references_array_pt = &references_array[0]
-     
+                
         references_array,nodes_values = Update_Narrow_Band(&indptr[0],&indices[0],nodes_values_pt,\
                     references_array_pt,Indices_neig,&Image_Data_Graph[0],data_pt,Neigh_ind,&nodes_number,\
                     Min_Index_Narrow,&levels,&count,&Indices_Far_Away_bool[0],&Indices_Narrow_bool[0],&Velocity[0],p)
@@ -891,6 +986,8 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
     free(references_array)
     free(Indices_Far_Away_bool)
     free(Indices_Narrow_bool)
+    
+    
     print('Computation finished in ___'+str(time.time()-Print_Time)+'___seconds')
     
     return Active_List, Active_List_Val
