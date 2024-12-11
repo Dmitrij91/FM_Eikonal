@@ -172,7 +172,7 @@ cdef double Local_Solution(double* a_i,double Vel,double p,double* w_i,int verte
     
     cdef int k
     
-    cdef double Grad_min = Vel 
+    cdef double Grad_min = 1/(Vel+1e-8)
     cdef double* a_i_sorted
     cdef double* w_i_sorted
     cdef double Local_Solution = 1e10 # Set large to go to the loop
@@ -180,26 +180,20 @@ cdef double Local_Solution(double* a_i,double Vel,double p,double* w_i,int verte
     cdef int m = 0
 
     a_i_sorted,w_i_sorted = Sort(a_i,w_i,End_Point)
-
-    # L1 Norm 
-
+    
     if p == 1.0:
         while Local_Solution >= a_i_sorted[m+1] and m <= End_Point-1:
             Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,vertex,m+1)  
             m += 1
-
-    # L2 Norm 
-
+    
     elif p == 2.0:
         while Local_Solution >=a_i_sorted[m+1] and m <= End_Point-1:
             Local_Solution = Solve_Subproblem(a_i_sorted,w_i_sorted,Grad_min,p,vertex,m+1)
             m += 1
-
-    # Infinity Norm '
-
-    elif p == 3.0:
-        Local_Solution = a_i_sorted[0]+w_i_sorted[0]
-
+    elif p == 3.0:# infinity
+        Local_Solution = a_i_sorted[0]+w_i_sorted[0]*(Grad_min)
+    
+    #Local_Solution = f_min_double(Local_Solution,a_i[0])
     free(a_i_sorted)
     free(w_i_sorted) 
     
@@ -664,7 +658,7 @@ cdef (double*,int*) add_level(int* old_reference, double* old_values,int* number
 @cython.wraparound(False)
 @cython.cdivision(True)
 
-cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] data,int [:] indices,int [:] indptr,int[:,:] Seeds_indices, int [:] shape_ad,double p):
+cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] data,int [:] indices,int [:] indptr,int[:,:] Seeds_indices,double p):
     
     assert len(data.shape) == len(indices.shape), ' data and indices not of equal shape '
     
@@ -903,3 +897,370 @@ cpdef Eikonal_Eq_Solve_Cython(double [:] Image,double[:] Velocity,double [:] dat
     print('Computation finished in ___'+str(time.time()-Print_Time)+'___seconds')
     
     return Active_List, Active_List_Val
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+
+cdef inline (int*,double*) Update_Narrow_Band_Labeling( int* Labeling, double* S_Array, int* indptr, int* indices, \
+                    double* Narrow_Band_Val, int* Narrow_Band,int* Indices,\
+                    double* Image_Data_Graph, double* h_i,int Length_In,int* Length_Narrow,\
+                    int Min_Index, int* levels,int* count,bint* Indices_Far_Away_bool,\
+                    bint* Indices_Narrow_bool,double [:] Vel,double p):
+    
+    'Create Variables auscilary Variables'
+    
+    cdef int j,i,k,l
+    cdef int del_index = 0
+    cdef double Help   = 0
+    cdef int* Narrow_Band_Up 
+    cdef double* Narrow_Band_Val_Up
+    ' New Index, Value List within the Narrow Band '
+        
+    cdef int Stop = 0
+    cdef int Response, Response_1
+    cdef int number = Length_Narrow[0]
+    cdef double Neigh_value
+    cdef int count_pt  = count[0]
+    cdef int levels_pt = levels[0]
+    cdef int Length_neigh_j
+    cdef int* Narrow_Band_pt = &Narrow_Band[0]
+    cdef double* Narrow_Band_Val_pt = &Narrow_Band_Val[0]
+    cdef int del_index_1 = 0
+    cdef int index_up 
+    cdef double* Image_Data_Graph_pt
+    cdef double* h_i_pt
+
+    cdef int Label_Aux 
+    for j in range(Length_In):
+        Label_Aux = Labeling [Min_Index]
+        Length_neigh_j = indptr[indices[indptr[Min_Index]+j]+1]-indptr[indices[indptr[Min_Index]+j]]
+        Image_Data_Graph_pt = <double*> malloc(sizeof(double)*Length_neigh_j)
+        h_i_pt = <double*> malloc(sizeof(double)*Length_neigh_j)
+        Response    = 0
+        Response_1  = 0
+        del_index   = 0
+        del_index_1 = 0
+        
+        
+        ' Check if the index is in Narrow_Band then update solution '
+
+        Check_Index_pt(Indices_Narrow_bool,Indices[j],&Response)
+        Check_Index_pt(Indices_Far_Away_bool,Indices[j],&Response_1)
+            
+        for k in range(Length_neigh_j):
+            Image_Data_Graph_pt[k] = Image_Data_Graph[indices[indptr[indices[indptr[Min_Index]+j]]+k]]
+            h_i_pt[k] = h_i[indptr[indices[indptr[Min_Index]+j]]+k]
+
+        Help = Local_Solution(&Image_Data_Graph_pt[0],Vel[indices[indptr[Min_Index]+j]],p,h_i_pt, j,Length_neigh_j)
+        
+        if Help < Image_Data_Graph[indices[indptr[Min_Index]+j]]:
+            Image_Data_Graph[indices[indptr[Min_Index]+j]] = Help
+            
+            if Image_Data_Graph[Min_Index]/h_i[indptr[Min_Index]+j] < S_Array[indices[indptr[Min_Index]+j]]:
+                S_Array[indices[indptr[Min_Index]+j]] = Image_Data_Graph[Min_Index]/h_i[indptr[Min_Index]+j]
+                Labeling[indices[indptr[Min_Index]+j]] = Labeling[Min_Index]
+            if Response_1 == 1:
+                'Set Index in Far_Away to -1 to ignore it '
+                
+                Indices_Far_Away_bool[Indices[j]] = False
+
+                ' Find Index in Far_Away with value Indices[j] '
+                    
+                Neigh_value  = Image_Data_Graph[indices[indptr[Min_Index]+j]]
+
+                ' If indices positions exceed add new level '
+
+                if count_pt+1 > number-pow(2,levels_pt-1):
+
+                    ' Update Narrowband size '
+                    
+                    number += pow(2,levels_pt)
+
+                    ' Add Level to Binary Heap '
+
+                    Narrow_Band_Val_Up,Narrow_Band_Up = add_level(Narrow_Band_pt, Narrow_Band_Val_pt,Length_Narrow,\
+                                                                &levels_pt,add = 1)
+                    
+
+                    levels_pt += 1
+                    Min_Heap_Insert(Narrow_Band_Up, Narrow_Band_Val_Up, indices[indptr[Min_Index]+j],Neigh_value,\
+                                                                                                        count_pt)
+                    count_pt += 1 
+                    Narrow_Band_pt = &Narrow_Band_Up[0]
+                    Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
+                else: 
+                    Narrow_Band_Val_Up = Narrow_Band_Val_pt
+                    Narrow_Band_Up     = Narrow_Band_pt
+                    Min_Heap_Insert(Narrow_Band_Up, Narrow_Band_Val_Up, indices[indptr[Min_Index]+j],Neigh_value, count_pt)
+                    count_pt += 1
+                    Narrow_Band_pt = &Narrow_Band_Up[0]
+                    Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
+            elif Response == 1:
+                Narrow_Band_Val_Up = Narrow_Band_Val_pt
+                Narrow_Band_Up     = Narrow_Band_pt
+                Min_Heap_Update_Node_Pos(Narrow_Band_Up, Narrow_Band_Val_Up,indices[indptr[Min_Index]+j],\
+                       Neigh_value,count_pt,number)
+                Narrow_Band_pt = &Narrow_Band_Up[0]
+                Narrow_Band_Val_pt = &Narrow_Band_Val_Up[0]
+
+            
+          
+        free(Image_Data_Graph_pt)
+        free(h_i_pt)
+        
+    count[0]  = count_pt
+    levels[0] = levels_pt
+    Length_Narrow[0] = number
+    
+    return Narrow_Band_pt,Narrow_Band_Val_pt
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+
+cpdef Eikonal_Eq_Labeling_Cython(int[:] Labeling, double [:] Image,double[:,:] Velocity,double [:] data,int [:] indices,int [:] indptr,int[:,:] Seeds_indices,double p):
+    
+    assert len(data.shape) == len(indices.shape), ' data and indices not of equal shape '
+    
+    cdef int Length_Graph = Image.shape[0]
+    cdef int k,l,i
+    
+    cdef double [:] Image_Data_Graph = Image.copy() # Array of reshaped arrival times set to zero at seeds indices 
+    for k in range(Seeds_indices.shape[0]):
+        Image_Data_Graph[Seeds_indices[k,0]] = 0
+    
+    cdef cnp.ndarray[ndim = 1, dtype = int,negative_indices = False] Active_List = np.zeros(Length_Graph,dtype = np.int32)
+    cdef cnp.ndarray[ndim = 1, dtype = int,negative_indices = False] Labeling_out = np.zeros(Length_Graph,dtype = np.int32)
+    cdef cnp.ndarray[ndim = 1, dtype = double,negative_indices = False] Active_List_Val  = np.zeros(Length_Graph,)
+    
+    ' Create List for Intersect Indices '
+    
+    cdef bint* Indices_Narrow_bool = <bint*>malloc(sizeof(bint)*Length_Graph)
+    cdef bint* Indices_Far_Away_bool = <bint*>malloc(sizeof(bint)*Length_Graph)
+    
+    cdef double* S_Array = <double*>malloc(sizeof(double)*Length_Graph)
+    
+    for k in prange(Length_Graph,nogil = True):
+        Indices_Narrow_bool[k] = False 
+        Indices_Far_Away_bool[k] = True
+        S_Array[k] = 10e10
+    
+    for k in range(Seeds_indices.shape[0]):
+        Labeling_out[Seeds_indices[k,0]]         = Labeling[Seeds_indices[k,0]]
+        Active_List[k]          = Seeds_indices[k,0]
+        Active_List_Val[k]      = Image_Data_Graph[Seeds_indices[k,0]] 
+        Indices_Far_Away_bool[Seeds_indices[k,0]] = False #Remove Index from boolean Far_Away array
+        
+    cdef int* Response
+    cdef int allocate_count = 0
+    
+    #########################################
+    #########################################
+    ########## ' Initilize Far_Away ' #######
+    #########################################
+    #########################################
+    
+    ' Compute setdifference '
+    
+    set_diff_cython(Active_List,&Indices_Far_Away_bool[0],Seeds_indices.shape[0])
+    
+    ############################################################################
+    
+    ' Initilize empty Narrow_Band through a Min-Heap-Structure with initial capacity 256 '
+    
+    cdef int initial_capacity = 0
+    cdef int levels = 0
+    cdef int nodes_number = 0
+    while initial_capacity < Seeds_indices.shape[0]:
+        initial_capacity += pow(2,levels)
+        levels += 1
+    
+    ' Number of Stored Values '
+    
+    cdef int count = 0
+    
+    ' Initialize Number Of Levels '
+    cdef int lev = 0
+    while nodes_number <= initial_capacity:
+        nodes_number += pow(2,lev)
+        lev += 1
+    levels = lev
+
+    ' Allocate memory for two arrays for binary min heap ' 
+        
+    cdef double* nodes_values = <double*> malloc(nodes_number*sizeof(double)) # Current Values of min time arrivels
+    cdef int* references_array = <int*>malloc(nodes_number*sizeof(int))       # Corresponding Indices on Image grid 
+    
+    for k in range(nodes_number):  
+        nodes_values[k] = 1e10
+        references_array[k] = -1
+    
+    cdef double* nodes_values_pt
+    cdef int* references_array_pt
+    
+    ' Create Narrow Band '
+   
+    cdef int Neigh_ind
+    cdef double Neigh_value
+    cdef int Check_Index 
+    cdef double* new_values
+    cdef double* new_values_pt
+    cdef int* new_reference
+    cdef int* new_reference_pt
+    cdef int index_up
+    cdef int Int_index = 0
+    cdef int Neigh_ind_l
+    cdef int q
+    cdef double* Image_Data_Graph_pt
+    cdef double* h_i_pt
+    cdef int Label_Front
+    
+    for k in range(Seeds_indices.shape[0]):
+        Label_Front = Labeling_out[Active_List[k]]
+        Neigh_ind = indptr[Active_List[k]+1] - indptr[Active_List[k]] #'Neighbour-indices of each Seed '
+        
+        ' Get the Neighbours for vertex k '
+        
+        for l in range(Neigh_ind):
+            Neigh_ind_l = indptr[indices[indptr[Active_List[k]]+l]+1]-indptr[indices[indptr[Active_List[k]]+l]]
+            Image_Data_Graph_pt = <double*>malloc(sizeof(double)*Neigh_ind_l)
+            h_i_pt  = <double*>malloc(sizeof(double)*Neigh_ind_l)
+            Check_Index = 0
+            
+            ' Check if Index is in Far_Away '
+
+            Intersect_Cython(&Indices_Far_Away_bool[0],indices[indptr[Active_List[k]]+l],&Check_Index)
+            
+            for q in range(Neigh_ind_l): 
+                Image_Data_Graph_pt[q] = Image_Data_Graph[indices[indptr[indices[indptr[Active_List[k]]+l]]+q]]
+                h_i_pt[q] = data[indptr[indices[indptr[Active_List[k]]+l]]+q]
+            if Check_Index == 1: # Add to Narrow_Band --> Remove from Far_Away
+                Indices_Far_Away_bool[indices[indptr[Active_List[k]]+l]] = False
+                
+                Indices_Narrow_bool[indices[indptr[Active_List[k]]+l]] = True
+                
+                Neigh_value         = Image_Data_Graph[indices[indptr[Active_List[k]]+l]]
+                nodes_values_pt     = &nodes_values[0]
+                references_array_pt = &references_array[0]
+                
+                ' If indices positions exceed --> add new level '
+
+                if count >= nodes_number:
+                    ' Update Size Binary Heap '
+                    new_values, new_reference = add_level(references_array_pt, nodes_values_pt,&nodes_number,\
+                                                             &levels,add = 1)
+                    levels += 1
+
+                else: 
+                    new_values    = <double*>malloc(nodes_number*sizeof(double))
+                    new_reference = <int*>malloc(nodes_number*sizeof(int))
+
+                    ' Copy Old reference Array '
+
+                    for i in range(nodes_number):
+                        new_reference[i] = references_array[i]
+
+                    for i in range(nodes_number):
+                        new_values[i] = nodes_values[i]
+
+                    free(nodes_values)
+                    free(references_array)
+                new_values_pt    = &new_values[0]
+                new_reference_pt = &new_reference[0] 
+                Help = Local_Solution(&Image_Data_Graph_pt[0],Velocity[Label_Front][indices[indptr[Active_List[k]]+l]],p,\
+                                      &h_i_pt[0], l,Neigh_ind_l)
+                if Help < Image_Data_Graph[indices[indptr[Active_List[k]]+l]]:
+                    Image_Data_Graph[indices[indptr[Active_List[k]]+l]] = Help
+                    if Image_Data_Graph[Active_List[k]]/data[indptr[Active_List[k]]+l]<S_Array[indices[indptr[Active_List[k]]+l]]:
+                        S_Array[indices[indptr[Active_List[k]]+l]] = Image_Data_Graph[Active_List[k]]/data[indptr[Active_List[k]]+l]
+                        Labeling_out[indices[indptr[Active_List[k]]+l]] = Labeling_out[Active_List[k]]
+                Min_Heap_Insert(new_reference_pt,new_values_pt,indices[indptr[Active_List[k]]+l],Help,count)
+                count += 1
+
+                ' Update Binary Tree '
+
+                nodes_values     = <double*>malloc(nodes_number* sizeof(double))
+                references_array = <int*>malloc(nodes_number * sizeof(int))
+
+                ' Update via for old number_size '
+
+                for i in range(nodes_number):
+
+                    nodes_values[i] = new_values[i]
+
+                for i in range(nodes_number):
+
+                    references_array[i] = new_reference[i]
+
+                nodes_values_pt     = &nodes_values[0]
+
+                references_array_pt = &references_array[0]
+                free(new_reference)
+                free(new_values)
+            free(Image_Data_Graph_pt)
+            free(h_i_pt)
+                
+    ' Process Time Distance '
+    ' Get the minimal value in Narrow Band '
+
+    cdef int Step = Seeds_indices.shape[0]
+    cdef int Min_Index_Narrow = 0
+    cdef int  Rem_Ind
+    cdef double Min_Value_Narrow = 0
+    cdef int* Indices_neig 
+    cdef int Dim_data = data.shape[0]
+    cdef double* data_pt
+    data_pt = &data[0]
+    cdef double Print_Time
+    Print_Time = time.time()
+
+    while Step < Length_Graph-1:
+        
+        nodes_values_pt     = &nodes_values[0]  
+        references_array_pt = &references_array[0]
+        
+        Min_Value_Narrow,references_array,nodes_values = Get_Index_Narrow_Cython(&levels,nodes_values_pt\
+                                             ,references_array_pt, &Min_Index_Narrow,&count,&nodes_number)
+
+        Active_List[Step]   = Min_Index_Narrow
+        Label_Front = Labeling_out[Min_Index_Narrow]
+        Indices_Narrow_bool[Min_Index_Narrow] = False
+        
+        Active_List_Val[Step] = Min_Value_Narrow
+        
+        Step = Step + 1
+        
+        ' Allocate Memory for neighbour indices to be updated '
+        
+        Neigh_ind = indptr[Min_Index_Narrow+1] - indptr[Min_Index_Narrow] #Neighbours of removed node added to binary heap
+        Indices_neig         = <int*>malloc(sizeof(int)*Neigh_ind) 
+        
+        for k in range(Neigh_ind):                    
+            Indices_neig[k]     = indices[indptr[Min_Index_Narrow]+k]        
+
+        'Update the values for vertices within the Neighbourhod'
+        'Here the Dijkstra`s methhod utilizes nearest neighbor'
+        
+        nodes_values_pt     = &nodes_values[0]
+        references_array_pt = &references_array[0]
+
+        references_array,nodes_values = Update_Narrow_Band_Labeling(&Labeling_out[0],&S_Array[0],&indptr[0],&indices[0],nodes_values_pt,\
+                    references_array_pt,Indices_neig,&Image_Data_Graph[0],data_pt,Neigh_ind,&nodes_number,\
+                    Min_Index_Narrow,&levels,&count,&Indices_Far_Away_bool[0],&Indices_Narrow_bool[0],Velocity[Label_Front],p)
+        free(Indices_neig)
+       
+    #' Append_Remaining Indices '
+    
+    free(nodes_values)
+    free(references_array)
+    free(Indices_Far_Away_bool)
+    free(Indices_Narrow_bool)
+    free(S_Array)
+    
+    
+    print('Computation finished in ___'+str(time.time()-Print_Time)+'___seconds')
+    
+    return Labeling_out,Active_List, Active_List_Val

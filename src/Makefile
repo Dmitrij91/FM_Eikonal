@@ -4,6 +4,8 @@ all:
 	rm -f -r Fast_Marching_Cython/build
 	rm -f Fast_Marching_Cython/Fast_*.c
 	rm -f Fast_Marching_Cython/Distance*.c
+	rm -f Fast_Marching_Cython/FM_*.c
 clean:
 	rm -f Fast_Marching_Cython/Fast_*.so
 	rm -f Fast_Marching_Cython/Distance*.so
+	rm -f Fast_Marching_Cython/FM_*.so

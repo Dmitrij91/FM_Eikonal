@@ -29,6 +29,12 @@ extensions = [
         extra_link_args=['-fopenmp'],
         include_dirs=[numpy.get_include()]),
     Extension(
+        name='Fast_Marching_Eikonal',
+        sources=['Fast_Marching_Eikonal.pyx'],
+        extra_compile_args=['-fopenmp'],
+        extra_link_args=['-fopenmp'],
+        include_dirs=[numpy.get_include()]),
+    Extension(
         name='Fast_Marching_Binary_Heap',
         sources=['Fast_Marching_Binary_Heap.pyx'],
         extra_compile_args=['-fopenmp'],

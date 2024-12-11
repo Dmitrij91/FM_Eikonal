@@ -27,16 +27,6 @@ from scipy.linalg.cython_lapack cimport dpotrf, dpotrs, dpotri, zpotrf, zpotri
 from libc.math cimport log, cos, sin, pi
 from libc.string cimport memcpy
 
-' Some How not working with nogil in Cython Compile, But works in Jupiter  '
-
-#cdef extern from "math.h":
-#    double sqrt(doublex) nogil
-#    #double log(doublex) nogil
-#    double exp(doublex) nogil
-#    double fmin(double x,double y) nogil
-#    double fmax(double x, double y) nogil
-#    double fabs(double x) nogil
-
 cdef extern from 'complex.h' nogil:
     double creal(complex)
 
