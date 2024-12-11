@@ -40,7 +40,7 @@ The repository provides a modular implementation that allows users to:
 
 ## Examples
 
-This library provides example scripts and detailed usage instructions to help users apply the algorithm to their specific tasks. Introductory material is accessible through a Jupyter Notebook tutorial located in the [`examples`](./examples) directory. The following prototypical scenarios are included:
+This library provides example scripts and detailed usage instructions to help users apply the algorithm to their specific tasks. Introductory material is accessible through a Jupyter Notebook tutorial located in the [`examples`](./Jupiter_Notebooks) directory. The following prototypical scenarios are included:
 
 1. **Distance Maps and Eikonal Equations**:
    - Solve Eikonal equations on weighted graphs using $L^2$, $L^1$, and $L^\infty$ norms.
@@ -56,50 +56,6 @@ This library provides example scripts and detailed usage instructions to help us
 
 We recommend exploring the `/Jupyter_Notebook` folder for these examples, which demonstrate the Fast Marching Library’s utility for tasks like tracking, labeling, and distance computation.
 
----
-
-## Application Scenarios
-
-### 1. Distance Map Propagation on a 2D Grid
-
-This scenario demonstrates level set propagation on a 2D grid using $L^1$, $L^\infty$, and Euclidean ($L^2$) norms.
-
-<p align="center">
-  <table>
-    <tr>
-      <td align="center"><img src="./docs/FM_Euclidian.gif" alt="Euclidean Distance" width="250" height="250"/></td>
-      <td align="center"><img src="./docs/FM_L1.gif" alt="L1 Distance" width="250" height="250"/></td>
-      <td align="center"><img src="./docs/FM_L_inf.gif" alt="L_inf Distance" width="250" height="250"/></td>
-    </tr>
-    <tr>
-      <td align="center">Euclidean Distance</td>
-      <td align="center">L1 Distance</td>
-      <td align="center">L∞ Distance</td>
-    </tr>
-  </table>
-</p>
-
-### 2. Labeling 2D Horse Dataset
-
-## Examples
-
-This library provides example scripts and detailed usage instructions to help users apply the algorithm to their specific tasks. Introductory material is accessible through a Jupyter Notebook tutorial located in the [`examples`](./examples) directory. The following prototypical scenarios are included:
-
-1. **Distance Maps and Eikonal Equations**:
-   - Solve Eikonal equations on weighted graphs using $L^2$, $L^1$, and $L^\infty$ norms.
-
-2. **Image Segmentation**:
-   - Demonstrated on the [Horse dataset](https://paperswithcode.com/dataset/horse-10).
-   - Features adjacency graph weights using two classes of local features:
-     - **Geometric Covariance Descriptor**
-     - **Deep Features with a small field of view**, both validated in real-world applications, particularly in [medical imaging](https://dl.acm.org/doi/abs/10.1007/s11263-021-01520-5).
-
-3. **Dataset Visualization and Clustering**:
-   - Example: Fast Marching on the MNIST dataset using a BallTree structure to handle high-dimensional data efficiently.
-
-We recommend exploring the `/Jupyter_Notebook` folder for these examples, which demonstrate the Fast Marching Library’s utility for tasks like tracking, labeling, and distance computation.
-
----
 
 ## Application Scenarios
 
