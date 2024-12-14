@@ -46,7 +46,7 @@ def FM_Ad_Matrix_Graph(Data_Vis,Knn_indices, Knn_distance):
         # Add edges between each representative node
         for i in range(len(component_representatives) - 1):
             u, v = component_representatives[i], component_representatives[i + 1]
-            adjacency_matrix[u, v] = adjacency_matrix[v, u] = 1e-5  # Small weight to connect components
+            adjacency_matrix[u, v] = adjacency_matrix[v, u] = 1e-8  # Small weight to connect components
 
         # Recompute symmetry
         adjacency_matrix = (adjacency_matrix.T + adjacency_matrix) / 2
@@ -92,6 +92,41 @@ def distance_stein(F, G):
         out = Distance_Utilities_Cython.distance_stein(F, G, out)
     out = out.reshape((*shape_F, *shape_G))
     return out
+
+'Quick approach for the Adj matrix Assumbling Old Scool Way'
+
+def Adj_Unnormalized(shape):
+    indptr = np.zeros(shape[0]*shape[1]+1,np.intc)
+    data = np.array([])
+    indices = np.array([],np.intc)
+    List_Neigh = np.array([])
+    ind = 0
+    for k in range(shape[0]):
+        for l in range(shape[1]):
+            indptr[k*shape[1]+l] = ind
+            data = np.append(data,1)
+            indices =np.append(indices,k*shape[1]+l)
+            ind += 1
+            if l+1 != shape[1]:
+                ind += 1
+                data = np.append(data,1)
+                indices =np.append(indices,k*shape[1]+(l+1))
+            if l-1 != -1:
+                ind += 1
+                data = np.append(data,1)
+                indices = np.append(indices,k*shape[1]+(l-1))
+            if k+1 != shape[0]:
+                ind += 1
+                data = np.append(data,1)
+                indices = np.append(indices,(k+1)*shape[1]+l)
+            if k-1 != -1:
+                ind += 1
+                data = np.append(data,1)
+                indices = np.append(indices,(k-1)*shape[1]+l)
+            indptr[k*shape[1]+l+1] = ind
+    Ad = csr_matrix((data,indices,indptr))
+    
+    return Ad
 
 def adj_matrix_adaptive_Mod(F, p, sigma = 1e0):
     """Computes the adjacency matrix of a grid graph with adaptive weights.
